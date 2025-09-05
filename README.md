@@ -8,6 +8,7 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.13-blue.svg" alt="Python Version"/></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License"/></a>
   <a href="https://huggingface.co/spaces/Vikhrmodels/DOoM-lb"><img src="https://img.shields.io/badge/🤗-HuggingFace%20Space-yellow.svg" alt="HuggingFace Space"/></a>
+  <a href="https://openrouter.ai"><img src="https://img.shields.io/badge/OpenRouter-Supported-success.svg" alt="OpenRouter Support"/></a>
 </p>
 
 Doom - бенчмарк для оценки качества языковых моделей на математических и физических задачах на русском языке.
@@ -20,6 +21,7 @@ Doom - это инструмент для тестирования и оценк
 - Оценивать понимание физических концепций и способность решать задачи по физике
 - Сравнивать производительность разных моделей на русскоязычном контенте
 - Оценивать улучшения в способностях моделей к решению научных задач
+- **Интегрировать модели через различные API, включая OpenRouter для доступа к широкому спектру моделей**
 
 Основная часть кодовой базы адаптирована из проекта OpenAI simpleeval.
 
@@ -27,6 +29,7 @@ Doom - это инструмент для тестирования и оценк
 
 1. **RussianMath** - разнообразные задачи по математике на русском языке (основной математический датасет)
 2. **RussianPhysics** - задачи по физике на русском языке (основной физический датасет)
+3. **Специализированные задачи** - многозадачные проблемы с контекстом до **200 000+ токенов**
 
 ## 🚀 Запуск
 
@@ -63,6 +66,12 @@ pip install -r requirements.txt
 python runner.py
 ```
 
+### Запуск с конфигурацией OpenRouter
+
+```bash
+python runner.py --config configs/run.yaml --model anthropic/claude-sonnet-4
+```
+
 ### Выбор конкретного датасета
 
 ```bash
@@ -92,31 +101,64 @@ python runner.py --help
 configs/run.yaml  # Основной конфигурационный файл
 ```
 
-Пример конфигурационного файла:
+### Поддерживаемые API типы:
+- `openai` - для OpenAI и совместимых API 
+- `gigachat` - для моделей GigaChat
+- `openrouter` - для доступа к моделям через OpenRouter (новое)
+
+### Пример конфигурации для моделей через OpenRouter
 
 ```yaml
 model_list:
-  - gpt-4o
-  - claude-3-opus-20240229
+  - anthropic/claude-sonnet-4  # Claude Sonnet 4 с 200K контекстом
 
-# Общие настройки (применяются ко всем моделям, если не переопределены)
-# num_examples: 100 # Опционально: Ограничить количество примеров для каждого датасета (по умолчанию используются все)
-# debug: false # Опционально: Включить режим отладки
+anthropic/claude-sonnet-4:
+  model_name: "anthropic/claude-sonnet-4"  # Отображаемое имя
+  endpoints:
+    - api_base: "https://openrouter.ai/api/v1"  # Обязательный URL
+      api_key: "your_openrouter_api_key"       # Ключ с openrouter.ai
+      referer_url: "https://your-project.edu"  # Ваш домен (обязательно)
+      app_title: "DOoM Benchmark"              # Название приложения (опционально)
+  api_type: openrouter        # Тип API: openrouter
+  parallel: 2                 # Рекомендуется 2 параллельных запроса
+  system_prompt: |            # Промпт для научных задач
+    Ты - экспертный решатель физико-математических задач. Строго следуй:
+    1. Пошаговый анализ проблемы
+    2. Точные вычисления с промежуточными результатами
+    3. Финальный ответ в формате: Ответ: $RESULT
+    4. Единицы измерений используй только если они указаны в условии
+  max_tokens: 190000          # Поддержка полного контекста модели
+  temperature: 0.0            # Для детерминированных результатов
+  request_delay: 0.5          # Задержка между запросами (рекомендовано)
+```
 
-gpt-4o:
-  model_name: gpt-4o
+### Полный пример конфига
+```yaml
+model_list:
+  - gpt-4o-mini
+  - gigachat-pro
+  - anthropic/claude-sonnet-4
+
+# Общие настройки
+debug: false
+num_examples: 50
+
+gpt-4o-mini:
+  model_name: "GPT-4o Mini"
   endpoints:
     - api_base: "https://api.openai.com/v1"
-      api_key: "your-api-key"
+      api_key: "your_openai_api_key"
   api_type: openai
-  parallel: 1
-  system_prompt: "Вы - полезный помощник по математике и физике. Ответьте на русском языке."
-  max_tokens: 32000
-  # num_examples: 50 # Опционально: Переопределить количество примеров для этой модели
+  # ... остальные параметры ...
 
-claude-3-opus-20240229:
-  # ... конфигурация для Claude ...
+anthropic/claude-sonnet-4:
+  # ... параметры Claude Sonnet 4 ...
 ```
+
+**Требования для OpenRouter:**
+- Обязательный параметр `referer_url` с валидным URL проекта
+- Регистрация на [OpenRouter.ai](https://openrouter.ai) для получения API ключа
+- Формат имени модели: `провайдер/имя-модели` (напр. `anthropic/claude-sonnet-4`)
 
 **Описание параметров конфигурации:**
 
@@ -126,7 +168,9 @@ claude-3-opus-20240229:
     *   `endpoints`: Список эндпоинтов API.
         *   `api_base` / `base_url`: URL API.
         *   `api_key` / `credentials`: Ключ API или учетные данные (зависит от `api_type`).
-    *   `api_type`: Тип API (`openai`, `gigachat` и т.д.).
+        *   `referer_url`: Обязательный для OpenRouter URL вашего проекта.
+        *   `app_title`: Название приложения для статистики OpenRouter.
+    *   `api_type`: Тип API (`openai`, `gigachat`, `openrouter`).
     *   `parallel`: Количество параллельных запросов к API для этой модели.
     *   `system_prompt`: Системный промпт для модели.
     *   `max_tokens`: Максимальное количество токенов в ответе.
@@ -138,6 +182,11 @@ claude-3-opus-20240229:
 
 После запуска оценки автоматически будет сгенерирована таблица лидеров.
 Она сохраняется в файле `results/leaderboard.md`.
+
+**Новые возможности:**
+- Поддержка моделей с длинным контекстом (до 200 000 токенов)
+- Интеграция результатов моделей OpenRouter в лидерборд
+- Автоматическое определение потребления токенов для расчета стоимости
 
 Детальные результаты по каждой модели доступны в директории `results/details/`.
 
@@ -156,25 +205,40 @@ claude-3-opus-20240229:
   "math_score": 0.8,
   "physics_score": 0.373,
   "total_tokens": 1394299,
+  "cost_estimation": 4.28, 
   "evaluation_time": 4533.2,
-  "system_prompt": "Вы - полезный помощник по математике и физике. Ответьте на русском языке."
+  "system_prompt": "Ты - экспертный решатель научных задач...",
+  "model_provider": "OpenRouter"
 }
 ```
 
-## 🧪 Тестирование собственной модели
+## 🧪 Тестирование моделей через OpenRouter
 
-Чтобы протестировать собственную модель на бенчмарке Doom:
+Чтобы протестировать модели через OpenRouter API:
 
-1. Разверните свою модель локально или через API
-2. Добавьте конфигурацию вашей модели в `configs/run.yaml`
-3. Запустите бенчмарк с помощью `python runner.py`
+1. Получите API ключ на [OpenRouter Keys](https://openrouter.ai/keys)
+2. Добавьте конфигурацию модели в `configs/run.yaml` (см. пример выше)
+3. Укажите модель в формате `provider/model-name` (напр. `anthropic/claude-sonnet-4`)
+4. Запустите бенчмарк:
+```bash
+python runner.py --config configs/run.yaml
+```
+
+**Поддерживаемые модели:**  
+Claude 3.5 Sonnet, Claude 3 Opus, LLaMA 3 70B, Google Gemini Pro, Command R+ и другие, доступные через OpenRouter.
+
+#### Преимущества использования OpenRouter:
+- Доступ к сотням моделей через единый API
+- Автоматическое вычисление стоимости вызовов
+- Поддержка длинного контекста (до 200K+ токенов)
+- Интеграция в существующий рабочий процесс без изменений кода
 
 Подробные инструкции по хостингу моделей через VLLM и их тестированию на бенчмарке доступны в файле [Instruction.md](Instruction.md).
 
 ## 📚 Структура проекта
 
 - `/configs` - конфигурационные файлы
-- `/src` - исходный код бенчмарка
+- `/src` - исходный код бенчмарка (включая поддержку OpenRouter)
 - `/results` - результаты тестирования
   - `/results/details` - подробные результаты по каждой модели
   - `/results/cache` - кэш результатов для ускорения повторных запусков
@@ -182,7 +246,8 @@ claude-3-opus-20240229:
 
 ## 🤗 Лидерборд
 
-Текущий лидерборд с результатами тестирования различных моделей доступен на [HuggingFace Space](https://huggingface.co/spaces/Vikhrmodels/DOoM-lb).
+Текущий лидерборд с результатами тестирования различных моделей доступен на [HuggingFace Space](https://huggingface.co/spaces/Vikhrmodels/DOoM-lb).  
+**Новое:** добавлен раздел для моделей OpenRouter с указанием стоимости вычислений.
 
 ## 📄 Лицензия
 
