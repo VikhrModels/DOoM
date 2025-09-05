@@ -4,27 +4,30 @@
 model_list:
   - gpt-4o-mini  # Пример модели OpenAI
   - gigachat-pro # Пример модели GigaChat
-  # - llama3-70b-local # Пример локально запущенной модели 
+  - anthropic/claude-sonnet-4  # Пример модели OpenRouter
+  # - llama3-70b-local # Пример локально запущенной модели
 
 # --- Общие настройки (применяются ко всем моделям, если не переопределены) ---
-
 # num_examples: 100 # Опционально: Ограничить количество примеров для каждого датасета.
                    # Если закомментировано или отсутствует, используются ВСЕ примеры.
 # debug: false      # Опционально: Включить режим отладки для подробного вывода (по умолчанию false).
 
 # --- Конфигурация для конкретных моделей ---
 
+# Конфигурация OpenAI GPT-4o Mini
 gpt-4o-mini:
   model_name: gpt-4o-mini # Имя модели, как оно будет отображаться в результатах
   endpoints:
     - api_base: "https://api.openai.com/v1" # URL эндпоинта API
       api_key: "YOUR_OPENAI_API_KEY"       # Ваш API ключ OpenAI (нужно заменить!)
-  api_type: openai        # Тип API (openai, gigachat)
+  api_type: openai        # Тип API (openai, gigachat, openrouter)
   parallel: 2             # Количество параллельных запросов к API для этой модели
   system_prompt: "Ты - полезный ИИ-ассистент, решающий задачи по математике и физике. Отвечай на русском языке." # Системный промпт
   max_tokens: 32000       # Максимальное количество токенов в ответе модели
   # num_examples: 50      # Опционально: Переопределить количество примеров только для этой модели
+  # request_delay: 0.2    # Опционально: Задержка между запросами в секундах
 
+# Конфигурация GigaChat Pro
 gigachat-pro:
   model_name: GigaChat Pro # Имя модели для отображения
   endpoints:
@@ -36,6 +39,28 @@ gigachat-pro:
   max_tokens: 8000
   verify_ssl_certs: false # Опционально: Отключить проверку SSL-сертификата (если необходимо)
 
+# Конфигурация Claude Sonnet 4 через OpenRouter
+anthropic/claude-sonnet-4:
+  model_name: "anthropic/claude-sonnet-4" # Отображаемое имя модели
+  endpoints:
+    - api_base: "https://openrouter.ai/api/v1" # OpenRouter endpoint (обязательно)
+      api_key: "YOUR_OPENROUTER_API_KEY"       # Ключ API с openrouter.ai
+      referer_url: "https://your-project.edu"  # URL вашего проекта (рекомендовано)
+      app_title: "DOoM Benchmark"              # Название приложения (опционально)
+  api_type: openrouter        # Тип API: openrouter
+  parallel: 2                 # Рекомендуется 2 параллельных запроса
+  system_prompt: |            # Детализированный промпт для научных задач
+    Ты - экспертный решатель физико-математических задач. Строго следуй:
+    1. Пошаговый анализ проблемы
+    2. Точные вычисления с промежуточными результатами
+    3. Финальный ответ в формате: Ответ: $RESULT
+    4. Единицы измерений используй только если они указаны в условии
+  max_tokens: 200000           # Поддержка 200K контекста
+  temperature: 0.0             # Для детерминированных результатов
+  request_delay: 0.5           # Минимальная задержка между запросами
+  # verify_ssl_certs: true     # Рекомендуется для production
+
+# Пример конфигурации для локальной модели (оставлен для справки)
 # llama3-70b-local:
 #   model_name: Llama3-70B (Local VLLM)
 #   endpoints:
