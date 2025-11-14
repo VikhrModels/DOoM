@@ -8,6 +8,7 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.13-blue.svg" alt="Python Version"/></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License"/></a>
   <a href="https://huggingface.co/spaces/Vikhrmodels/DOoM-lb"><img src="https://img.shields.io/badge/🤗-HuggingFace%20Space-yellow.svg" alt="HuggingFace Space"/></a>
+  <a href="https://arxiv.org/pdf/2509.23529"><img src="https://img.shields.io/badge/arXiv-2509.23529-b31b1b.svg" alt="arXiv"/></a>
 </p>
 
 Doom - бенчмарк для оценки качества языковых моделей на математических и физических задачах на русском языке.
