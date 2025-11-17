@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from src.equality_checker import DoomSlayer
 from src.sampler import OaiSampler
-from src.mat_boy import RussianMathEval, MathDemonEval
+from src.mat_boy import *
 from src.types import SingleEvalResult
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from tqdm.auto import tqdm
@@ -46,7 +46,7 @@ class Leaderboard:
         self.cache_dir: Path = self.output_dir / "cache"
         self.cache_dir.mkdir(exist_ok=True)
 
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             self.config: Dict[str, Any] = yaml.safe_load(f)
         self.model_links: Dict[str, str] = self.config.get("model_links", {})
         self.equality_checker: DoomSlayer = DoomSlayer()
@@ -268,6 +268,7 @@ class Leaderboard:
         model_name: str,
         timestamp_math: Optional[str] = None,
         timestamp_physics: Optional[str] = None,
+        timestamp_demidovich: Optional[str] = None
     ) -> Optional[Path]:
         """
         Объединяет отчеты по математике и физике в один комбинированный отчет.
@@ -287,14 +288,16 @@ class Leaderboard:
             print(f"No detailed reports found for model {model_name}")
             return None
 
-        if timestamp_math and timestamp_physics:
+        if timestamp_math and timestamp_physics and timestamp_demidovich:
             math_report = model_dir / f"details_{timestamp_math}.md"
             physics_report = (
                 model_dir / f"details_{timestamp_physics}_RussianPhysics.md"
             )
+            demidovich_report = model_dir / f"details_{timestamp_demidovich}.md"
         else:
             math_reports = list(model_dir.glob("details_*.md"))
             physics_reports = list(model_dir.glob("details_*_RussianPhysics.md"))
+            demidovich_reports =  list(model_dir.glob("details_*_MathDemon_Demidovich.md"))
 
             if not math_reports or not physics_reports:
                 print(f"Missing either math or physics reports for model {model_name}")
@@ -306,12 +309,15 @@ class Leaderboard:
             physics_report = sorted(
                 physics_reports, key=lambda x: x.stat().st_mtime, reverse=True
             )[0]
+            demidovich_report = sorted(
+                demidovich_reports, key=lambda x: x.stat().st_mtime, reverse=True
+            )[0]
 
             timestamp_math = math_report.stem.split("_")[1]
             timestamp_physics = physics_report.stem.split("_")[1]
 
-        if not math_report.exists() or not physics_report.exists():
-            print(f"Could not find both reports for model {model_name}")
+        if not math_report.exists() or not physics_report.exists() or not demidovich_report.exists():
+            print(f"Could not find some reports for model {model_name}")
             return None
 
         combined_report = model_dir / f"details_{timestamp_math}_combined.md"
@@ -328,13 +334,19 @@ class Leaderboard:
         with open(physics_report, "r", encoding="utf-8") as f:
             physics_content = f.read()
 
+        with open(demidovich_report, "r", encoding="utf-8") as f:
+            demidovich_content = f.read()
+
         math_lines = math_content.split("\n")
         physics_lines = physics_content.split("\n")
+        demidovich_lines = demidovich_content.split("\n")
 
         math_start = 0
         physics_start = 0
+        demidovich_start = 0
         math_summary_start = 0
         physics_summary_start = 0
+        demidovich_summary_start = 0
 
         for i, line in enumerate(math_lines):
             if line.startswith("## Summary"):
@@ -348,6 +360,13 @@ class Leaderboard:
                 physics_summary_start = i
             if line.startswith("## Example 1"):
                 physics_start = i
+                break
+
+        for i, line in enumerate(demidovich_lines):
+            if line.startswith("## Summary"):
+                demidovich_summary_start = i
+            if line.startswith("## Example 1"):
+                demidovich_start = i
                 break
 
         combined_content = []
@@ -375,16 +394,28 @@ class Leaderboard:
             or "answers" in line
             or "Dataset" in line
         ]
+        demidovich_summary_lines = [
+            line
+            for line in demidovich_lines[demidovich_summary_start:demidovich_start]
+            if "Score" in line
+            or "examples" in line
+            or "answers" in line
+            or "Dataset" in line
+        ]
 
         math_score = next((line for line in math_summary_lines if "Score" in line), "")
         physics_score = next(
             (line for line in physics_summary_lines if "Score" in line), ""
         )
+        demidovich_score = next(
+            (line for line in demidovich_summary_lines if "Score" in line), ""
+        )
 
         try:
             math_score_value = float(math_score.split(":")[-1].strip())
             physics_score_value = float(physics_score.split(":")[-1].strip())
-            combined_score = (math_score_value + physics_score_value) / 2
+            demidovich_score_value = float(demidovich_score.split(":")[-1].strip())
+            combined_score = (math_score_value + physics_score_value + demidovich_score_value) / 3
             combined_score_line = f"- **Combined Score**: {combined_score:.3f}"
         except (ValueError, IndexError):
             combined_score_line = "- **Combined Score**: N/A"
@@ -403,6 +434,12 @@ class Leaderboard:
         combined_content.append("")
         combined_content.append("---")
         combined_content.append("")
+        combined_content.append("### Demidovich")
+        for line in demidovich_summary_lines:
+            combined_content.append(line)
+        combined_content.append("")
+        combined_content.append("---")
+        combined_content.append("")
 
         combined_content.append("## Mathematics Examples")
         combined_content.append("")
@@ -411,6 +448,10 @@ class Leaderboard:
         combined_content.append("\n## Physics Examples")
         combined_content.append("")
         combined_content.extend(physics_lines[physics_start:])
+
+        combined_content.append("## Demidovich Examples")
+        combined_content.append("")
+        combined_content.extend(demidovich_lines[math_start:])
 
         with open(combined_report, "w", encoding="utf-8") as f:
             f.write("\n".join(combined_content))
@@ -432,7 +473,7 @@ class Leaderboard:
             timestamp = result.get("timestamp")
 
             if model_name not in models_with_both_datasets:
-                models_with_both_datasets[model_name] = {"math": None, "physics": None}
+                models_with_both_datasets[model_name] = {"math": None, "physics": None, "demidovich": None}
 
             if dataset == "RussianMath" or dataset is None:
                 if (
@@ -446,13 +487,20 @@ class Leaderboard:
                     or timestamp > models_with_both_datasets[model_name]["physics"]
                 ):
                     models_with_both_datasets[model_name]["physics"] = timestamp
+            elif dataset == "MathDemon_Demidovich":
+                if (
+                    not models_with_both_datasets[model_name]["demidovich"]
+                    or timestamp > models_with_both_datasets[model_name]["demidovich"]
+                ):
+                    models_with_both_datasets[model_name]["demidovich"] = timestamp
 
         for model_name, timestamps in models_with_both_datasets.items():
-            if timestamps["math"] and timestamps["physics"]:
+            if timestamps["math"] and timestamps["physics"] and timestamps["demidovich"]:
                 self._combine_detailed_reports(
                     model_name=model_name,
                     timestamp_math=timestamps["math"],
                     timestamp_physics=timestamps["physics"],
+                    timestamp_demidovich=timestamps["demidovich"],
                 )
 
     # МЕТОДЫ ОЦЕНКИ МОДЕЛЕЙ
@@ -707,8 +755,6 @@ class Leaderboard:
             yaml.dump(temp_config, f)
 
         try:
-            from src.mat_boy import RussianPhysicsEval
-
             sampler = OaiSampler(str(temp_config_path))
             evaluator = RussianPhysicsEval(
                 equality_checker=self.equality_checker,
@@ -885,6 +931,222 @@ class Leaderboard:
             )
 
         self._save_results()
+
+    def evaluate_demidovich_model(
+        self, model_name: str, system_prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Оценивает одну модель на датасете MathDemon_Demidovich.
+
+        Args:
+            model_name: Название модели для оценки
+            system_prompt: Системный промпт для модели (опционально)
+
+        Returns:
+            Словарь с результатами оценки модели
+        """
+        cache_key = f"{self._get_cache_key(model_name, system_prompt)}_demidovich"
+        cached_result = self._get_cached_result(cache_key)
+
+        if cached_result is not None:
+            if self.config.get("debug"):
+                print(f"\nUsing cached demidovich result for {model_name}")
+            return cached_result
+
+        if self.config.get("debug"):
+            print(f"\nEvaluating {model_name} on MathDemonDemidovich")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_model_name = model_name.replace("/", "_")
+
+        temp_config = self.config.copy()
+        temp_config["model_list"] = [model_name]
+        if system_prompt is not None:
+            temp_config[model_name]["system_prompt"] = system_prompt
+
+        temp_config_path = (
+            self.output_dir / f"temp_config_demidovich_{safe_model_name}.yaml"
+        )
+        with open(temp_config_path, "w") as f:
+            yaml.dump(temp_config, f)
+
+        try:
+            sampler = OaiSampler(str(temp_config_path))
+            evaluator = MathDemonEval(
+                equality_checker=self.equality_checker,
+                num_examples=self.config.get("num_examples", None),
+                debug=self.config.get("debug", False),
+            )
+
+            start_time = time.time()
+            results = evaluator(sampler)
+            evaluation_time = time.time() - start_time
+            self._save_detailed_results(
+                model_name, results.results, timestamp, "MathDemon_Demidovich"
+            )
+
+            total_tokens = sum(
+                r.tokens for r in results.results if hasattr(r, "tokens")
+            )
+
+            model_result = {
+                "model_name": model_name,
+                "score": results.score,
+                "total_tokens": total_tokens,
+                "evaluation_time": evaluation_time,
+                "system_prompt": system_prompt,
+                "timestamp": timestamp,
+                "cache_key": cache_key,
+                "dataset": "MathDemon_Demidovich",
+            }
+
+            self._save_to_cache(cache_key, model_result)
+            self.results[f"{model_name}_{timestamp}_demidovich"] = model_result
+            self._save_results()
+
+            return model_result
+
+        finally:
+            temp_config_path.unlink(missing_ok=True)
+
+    def evaluate_demidovich_model_parallel(
+        self, args: Tuple[str, Optional[str]]
+    ) -> Dict[str, Any]:
+        """
+        Оценивает одну модель на датасете MathDemon_Demidovich (для использования в ThreadPoolExecutor).
+
+        Args:
+            args: Кортеж (model_name, system_prompt)
+
+        Returns:
+            Словарь с результатами оценки модели
+        """
+        model_name, system_prompt = args
+        return self.evaluate_demidovich_model(model_name, system_prompt)
+
+    def evaluate_demidovich_models(
+        self, system_prompts: Optional[Dict[str, str]] = None
+    ) -> None:
+        """
+        Оценивает все модели на датасете MathDemon_Demidovich из конфига параллельно с использованием кэша.
+
+        Args:
+            system_prompts: Словарь системных промптов для моделей
+                (model_name -> system_prompt)
+        """
+        if system_prompts is None:
+            system_prompts = {}
+
+        measured_models = set()
+        for key, result in self.results.items():
+            if result.get("dataset") == "MathDemon_Demidovich":
+                measured_models.add(result.get("model_name"))
+
+        config_models = set(self.config["model_list"])
+        new_models = config_models - measured_models
+        
+        # Определяем модели, которые нужно перетестировать
+        models_with_incomplete_results = set()
+        if self.retry_incomplete:
+            # Получаем модели, у которых есть результаты для MathDemon_Demidovich, 
+            # но возможно были ошибки или прерывания
+            models_with_physics_results = set()
+            for key, result in self.results.items():
+                if result.get("dataset") == "MathDemon_Demidovich" and result["model_name"] in config_models:
+                    if result.get("score") is not None and result.get("score") > 0:
+                        models_with_physics_results.add(result["model_name"])
+            
+            models_with_incomplete_results = config_models - models_with_physics_results - new_models
+            if models_with_incomplete_results:
+                print(f"\nFound models with incomplete MathDemon_Demidovich results that will be retested: {', '.join(models_with_incomplete_results)}")
+
+        if new_models:
+            print(
+                f"\nFound new models to evaluate on MathDemon_Demidovich: {', '.join(new_models)}"
+            )
+
+        # Объединяем новые модели и модели с неполными результатами
+        models_to_evaluate = new_models | models_with_incomplete_results
+
+        if models_to_evaluate:
+            uncached_args = [
+                (model_name, system_prompts.get(model_name))
+                for model_name in models_to_evaluate
+            ]
+
+            print(f"\nEvaluating {len(uncached_args)} models on MathDemon_Demidovich...")
+
+            def handle_sigint(signum: int, frame: Any) -> None:
+                print(
+                    "\nGracefully shutting down... Please wait for current evaluations to complete."
+                )
+                executor.shutdown(wait=True)
+                sys.exit(0)
+
+            original_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, handle_sigint)
+
+            try:
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    futures = [
+                        executor.submit(self.evaluate_demidovich_model_parallel, args)
+                        for args in uncached_args
+                    ]
+
+                    pbar = tqdm(
+                        total=len(futures),
+                        desc="Evaluating models on MathDemon_Demidovich",
+                        leave=True,
+                    )
+
+                    completed = 0
+                    while completed < len(futures):
+                        for i, future in enumerate(futures):
+                            if future.done() and not hasattr(future, "_processed"):
+                                try:
+                                    result = future.result(timeout=1)
+                                    if result:
+                                        key = f"{result['model_name']}_{result['timestamp']}_demidovich"
+                                        self.results[key] = result
+                                        self._save_to_cache(
+                                            f"{self._get_cache_key(result['model_name'], result.get('system_prompt'))}_demidovich",
+                                            result,
+                                        )
+                                    setattr(future, "_processed", True)
+                                    completed += 1
+                                    pbar.update(1)
+                                except TimeoutError:
+                                    print(
+                                        "\nWarning: Evaluation timed out for one of the models"
+                                    )
+                                except Exception as e:
+                                    print(f"\nError during evaluation: {str(e)}")
+                                    setattr(future, "_processed", True)
+                                    completed += 1
+                                    pbar.update(1)
+
+                        time.sleep(0.1)
+
+                    pbar.close()
+
+            finally:
+                signal.signal(signal.SIGINT, original_sigint)
+                self._save_results()
+        else:
+            print("\nNo new models to evaluate on MathDemon_Demidovich, using cached results")
+
+        missing_models = config_models - set(
+            result["model_name"]
+            for result in self.results.values()
+            if result.get("dataset") == "MathDemon_Demidovich"
+        )
+        if missing_models:
+            print(
+                f"\nWarning: Missing MathDemon_Demidovich results for models: {', '.join(missing_models)}"
+            )
+
+        self._save_results()
+
 
     def _evaluate_subset_parallel(self, subset_name: str) -> Dict[str, Dict[str, Any]]:
         """
@@ -1158,6 +1420,7 @@ class Leaderboard:
                 model_results[model_name] = {
                     "RussianMath": None,
                     "RussianPhysics": None,
+                    "MathDemon_Demidovich": None
                 }
 
             dataset = result.get("dataset", "RussianMath")
@@ -1181,24 +1444,26 @@ class Leaderboard:
             if results["RussianMath"] and results["RussianPhysics"]:
                 math_score = results["RussianMath"]["score"]
                 physics_score = results["RussianPhysics"]["score"]
-                combined_score = (math_score + physics_score) / 2.0
+                demidovich_score = results["MathDemon_Demidovich"]["score"]
+                combined_score = (math_score + physics_score + demidovich_score) / 3.0
 
                 total_tokens = results["RussianMath"].get("total_tokens", 0) + results[
                     "RussianPhysics"
-                ].get("total_tokens", 0)
+                ].get("total_tokens", 0) + results["MathDemon_Demidovich"].get("total_tokens", 0)
                 total_time = results["RussianMath"].get("evaluation_time", 0) + results[
                     "RussianPhysics"
-                ].get("evaluation_time", 0)
+                ].get("evaluation_time", 0) + results["MathDemon_Demidovich"].get("evaluation_time", 0)
 
                 system_prompt = results["RussianMath"].get("system_prompt") or results[
                     "RussianPhysics"
-                ].get("system_prompt")
+                ].get("system_prompt") or results["MathDemon_Demidovich"].get("system_prompt")
 
                 self.results[f"{model_name}_Combined_{timestamp}"] = {
                     "model_name": model_name,
                     "score": combined_score,
                     "math_score": math_score,
                     "physics_score": physics_score,
+                    "demidovich_score": demidovich_score,
                     "total_tokens": total_tokens,
                     "evaluation_time": total_time,
                     "system_prompt": system_prompt,
@@ -1207,7 +1472,7 @@ class Leaderboard:
                 }
 
                 print(
-                    f"Model {model_name} combined score: {combined_score:.3f} (Math: {math_score:.3f}, Physics: {physics_score:.3f})"
+                    f"Model {model_name} combined score: {combined_score:.3f} (Math: {math_score:.3f}, Physics: {physics_score:.3f}, Demidovich: {demidovich_score:.3f})"
                 )
 
             elif results["RussianMath"]:
@@ -1218,6 +1483,10 @@ class Leaderboard:
             elif results["RussianPhysics"]:
                 print(
                     f"Warning: Model {model_name} has only RussianPhysics results, skipping combined score calculation"
+                )
+            elif results["MathDemon_Demidovich"]:
+                print(
+                    f"Warning: Model {model_name} has only MathDemon_Demidovich results, skipping combined score calculation"
                 )
 
         self._save_results()
@@ -1234,8 +1503,8 @@ class Leaderboard:
         md = "# Math Evaluation Leaderboard\n\n"
         md += f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
-        md += "| Model | Combined Score | RussianMath Score | RussianPhysics Score | Tokens Used | System Prompt | Evaluation Time | Details |\n"
-        md += "|-------|---------------|-------------------|----------------------|-------------|---------------|----------------|--------|\n"
+        md += "| Model | Combined Score | RussianMath Score | RussianPhysics Score | Demidovich Score | Tokens Used | System Prompt | Evaluation Time | Details |\n"
+        md += "|-------|---------------|-------------------|----------------------|------------------|-------------|---------------|----------------|--------|\n"
 
         self._prepare_combined_reports()
 
@@ -1249,6 +1518,7 @@ class Leaderboard:
                     "combined": None,
                     "russianmath": None,
                     "physics": None,
+                    "demidovich": None
                 }
 
             dataset = result.get("dataset")
@@ -1267,6 +1537,12 @@ class Leaderboard:
                     or result["score"] > model_data[model_name]["physics"]["score"]
                 ):
                     model_data[model_name]["physics"] = result
+            elif dataset == "MathDemon_Demidovich":
+                if (
+                    not model_data[model_name]["demidovich"]
+                    or result["score"] > model_data[model_name]["demidovich"]["score"]
+                ):
+                    model_data[model_name]["demidovich"] = result
 
         def get_sort_score(model_name: str) -> float:
             data = model_data[model_name]
@@ -1287,15 +1563,18 @@ class Leaderboard:
             combined_score = data["combined"]["score"] if data["combined"] else "-"
             rm_score = data["russianmath"]["score"] if data["russianmath"] else "-"
             physics_score = data["physics"]["score"] if data["physics"] else "-"
+            demidovich_score = data["demidovich"]["score"] if data["demidovich"] else "-"
 
             total_tokens = 0
             if data["russianmath"]:
                 total_tokens += data["russianmath"].get("total_tokens", 0)
             if data["physics"]:
                 total_tokens += data["physics"].get("total_tokens", 0)
+            if data["demidovich"]:
+                total_tokens += data["demidovich"].get("total_tokens", 0)
 
             system_prompt = None
-            for result_type in ["russianmath", "physics", "combined"]:
+            for result_type in ["russianmath", "physics", "demidovich", "combined"]:
                 if data[result_type] and data[result_type].get("system_prompt"):
                     system_prompt = data[result_type]["system_prompt"]
                     break
@@ -1310,13 +1589,16 @@ class Leaderboard:
                 eval_time += data["russianmath"].get("evaluation_time", 0)
             if data["physics"]:
                 eval_time += data["physics"].get("evaluation_time", 0)
+            if data["demidovich"]:
+                eval_time += data["demidovich"].get("evaluation_time", 0)
 
             details = ""
             safe_model_name = model_name.replace("/", "_")
 
-            if data["russianmath"] and data["physics"]:
+            if data["russianmath"] and data["physics"] and data["demidovich"]:
                 math_timestamp = data["russianmath"]["timestamp"]
                 physics_timestamp = data["physics"]["timestamp"]
+                demidovich_timestamp = data["demidovich"]["timestamp"]
 
                 combined_report = (
                     self.details_dir
@@ -1347,6 +1629,7 @@ class Leaderboard:
             md += f"| {combined_score if isinstance(combined_score, str) else f'{combined_score:.3f}'} "
             md += f"| {rm_score if isinstance(rm_score, str) else f'{rm_score:.3f}'} "
             md += f"| {physics_score if isinstance(physics_score, str) else f'{physics_score:.3f}'} "
+            md += f"| {demidovich_score if isinstance(demidovich_score, str) else f'{demidovich_score:.3f}'} "
             md += f"| {total_tokens} "
             md += f"| {system_prompt} "
             md += f"| {eval_time:.1f}s "

@@ -254,9 +254,10 @@ class MathDemonEval(Eval):
 
     def __init__(
         self,
-        subset_name: str,
+        equality_checker: SamplerBase,
         num_examples: Optional[int] = None,
-        debug: bool = False, 
+        n_repeats: int = 1,
+        debug: bool = False,
     ) -> None:
         """
         Инициализирует оценку на подсетах MathDemon_Demidovich.
@@ -266,21 +267,24 @@ class MathDemonEval(Eval):
             num_examples: Количество примеров для оценки (по умолчанию 1)
             debug: Режим отладки для подробного вывода
         """
-        dataset = load_dataset("Vikhrmodels/MathDemon_Demidovich", subset_name)
-        examples = [
-            {"task": row["translated_conditions"], "Answer": row["translated_answers"]}
-            for row in dataset["train"]
-        ]
+        tasks = ['Approximation_by_Polynomials', 'Continuous_Functions', 'Convex_Functions', 'Diﬀerentiation', 'Improper_Integrals', 'Infinite_Series', 'Integration', 'Sequences_and_Limits', 'Series_of_Functions']
+        dss = [load_dataset("Vikhrmodels/MathDemon_Demidovich", task) for task in tasks]
+        examples = []
+        for dataset in dss:
+            examples += [
+                {"task": row["problem"], "Answer": row["answer"]}
+                for row in dataset["train"]
+            ]
 
         if num_examples and num_examples > 0:
             examples = examples[:num_examples]
 
         self.examples: List[Dict[str, str]] = examples
         self.debug: bool = debug
-        self.equality_checker: Optional[SamplerBase] = None
+        self.equality_checker: Optional[SamplerBase] = equality_checker
 
         if self.debug:
-            print(f"Loaded {len(self.examples)} examples for subset {subset_name}")
+            print(f"Loaded {len(self.examples)} examples")
 
     def set_equality_checker(self, equality_checker: SamplerBase) -> None:
         """

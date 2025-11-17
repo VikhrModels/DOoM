@@ -27,6 +27,7 @@ def main() -> None:
 Примеры использования:
   python runner.py                        # Запустить оценку на всех датасетах (по умолчанию)
   python runner.py --dataset russianmath  # Запустить только на датасете RussianMath
+  python runner.py --dataset demidovich  # Запустить только на датасете MathDemon_Demidovich
   python runner.py --dataset physics      # Запустить только на датасете RussianPhysics
   python runner.py --no-cache             # Игнорировать кэш и переоценить все модели
   python runner.py --max-workers 8        # Использовать 8 параллельных потоков
@@ -51,7 +52,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--dataset",
-        choices=["all", "russianmath", "physics"],
+        choices=["all", "russianmath", "physics", "demidovich"],
         default="all",
         help="Выбор датасета для оценки: all (все), russianmath, physics (по умолчанию: all)",
     )
@@ -90,6 +91,10 @@ def main() -> None:
     if args.dataset == "all" or args.dataset == "russianmath":
         print("\nЗапуск оценки на датасете RussianMath")
         leaderboard.evaluate_all_models(system_prompts)
+
+    if args.dataset == "all" or args.dataset == "demidovich":
+        print("\nЗапуск оценки на датасете MathDemon_Demidovich")
+        leaderboard.evaluate_demidovich_models(system_prompts)
 
     if args.dataset == "all" or args.dataset == "physics":
         print("\nЗапуск оценки на датасете RussianPhysics")
